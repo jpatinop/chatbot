@@ -1,63 +1,56 @@
 import streamlit as st
 import os
 from groq import Groq
-from dotenv import load_dotenv
-from PyPDF2 import PdfReader # La librería que instalamos
+from PyPDF2 import PdfReader
 
-load_dotenv()
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# Configuración de la página
+st.set_page_config(page_title="IA Business Assistant", page_icon="🤖")
 
-# --- FUNCIÓN PARA EXTRAER TEXTO DE UN PDF ---
-def extraer_texto_pdf(nombre_archivo):
-    texto_acumulado = ""
-    try:
-        reader = PdfReader(nombre_archivo)
-        for page in reader.pages:
-            texto_acumulado += page.extract_text()
-        return texto_acumulado
-    except Exception as e:
-        return f"Error leyendo PDF: {e}"
+# Conexión con los Secrets de Streamlit Cloud
+client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# --- INTERFAZ ---
-st.title("🤖 IA Lector de Catálogos (PDF)")
+st.title("🤖 Asistente IA Corporativo")
+st.markdown("Suba su manual y chatee con la información.")
 
-# Buscamos si hay un PDF en la carpeta
-pdf_files = [f for f in os.listdir('.') if f.endswith('.pdf')]
+# --- BARRA LATERAL PARA EL PDF ---
+with st.sidebar:
+    st.header("Documentación")
+    archivo_subido = st.file_uploader("Cargar PDF de conocimiento", type="pdf")
 
-if pdf_files:
-    archivo_actual = pdf_files[0] # Tomamos el primer PDF que encuentre
-    st.write(f"✅ Leyendo conocimiento de: **{archivo_actual}**")
-    contexto_empresa = extraer_texto_pdf(archivo_actual)
-else:
-    st.warning("⚠️ No encontré ningún archivo PDF en la carpeta.")
-    contexto_empresa = ""
+# --- PROCESAMIENTO DEL PDF ---
+contexto_empresa = ""
+if archivo_subido:
+    reader = PdfReader(archivo_subido)
+    for page in reader.pages:
+        contexto_empresa += page.extract_text()
+    st.sidebar.success("✅ PDF cargado con éxito")
 
-# --- LÓGICA DE CHAT ---
-if "historial" not in st.session_state:
-    st.session_state.historial = []
+# --- LÓGICA DEL CHAT MODERNO ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-with st.form(key="chat_form", clear_on_submit=True):
-    user_input = st.text_input("Haz una pregunta sobre el PDF:")
-    submit_button = st.form_submit_button(label="Consultar")
+# Mostrar historial con burbujas modernas
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-if submit_button and user_input and contexto_empresa:
-    instrucciones = f"""
-    Eres un asistente experto. Usa la información del PDF para responder.
-    INFORMACIÓN DEL PDF:
-    {contexto_empresa[:5000]} # Limitamos a 5000 caracteres para no saturar
-    """
+# Barra de chat inferior (La que antes daba error)
+if prompt := st.chat_input("¿En qué puedo ayudarte hoy?"):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-    completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content": instrucciones},
-            {"role": "user", "content": user_input}
-        ]
-    )
-    
-    respuesta = completion.choices[0].message.content
-    st.session_state.historial.append((user_input, respuesta))
-
-for pregunta, respuesta in reversed(st.session_state.historial):
-    st.info(f"**Pregunta:** {pregunta}")
-    st.success(f"**Respuesta:** {respuesta}")
+    # Respuesta de la IA
+    with st.chat_message("assistant"):
+        instrucciones = f"Eres un asistente experto. Usa este contexto: {contexto_empresa[:8000]}"
+        
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": instrucciones},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        respuesta = completion.choices[0].message.content
+        st.markdown(respuesta)
+        st.session_state.messages.append({"role": "assistant", "content": respuesta})
